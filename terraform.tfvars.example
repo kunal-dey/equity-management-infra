@@ -1,0 +1,54 @@
+# AWS Credentials
+# Copy this file to terraform.tfvars and fill in your actual values
+# terraform.tfvars is in .gitignore and will not be committed to version control
+
+access_key = "YOUR_AWS_ACCESS_KEY_ID"
+secret_key = "YOUR_AWS_SECRET_ACCESS_KEY"
+
+# AWS Region
+aws_region = "ap-south-1"
+
+# Application Configuration
+environment      = "production"
+application_name = "equity-management"
+
+# Lambda Configuration
+lambda_role_name   = "lambda_execution_role"
+lambda_function_name = "fetch_request_token"
+lambda_handler     = "app.fetch_request_token"
+lambda_runtime     = "python3.12"
+lambda_source_path = "login"
+lambda_timeout     = 3
+lambda_memory_size = 128
+
+lambda_environment_variables = {
+  ENVIRONMENT = "production"
+  LOG_LEVEL   = "info"
+}
+
+# Lambda Layer Configuration
+lambda_layer_name          = "kiteconnect-dependencies"
+lambda_layer_filename      = "lambda-layer-al2023.zip"
+lambda_compatible_runtimes = ["python3.12"]
+
+# API Gateway Configuration
+api_gateway_name = "fetch-http-api"
+api_route_key    = "GET /login"
+
+api_stages = [{
+  name        = "login_stage"
+  auto_deploy = true
+  description = "Login API stage"
+}]
+
+# GitHub Configuration
+github_owner = "kunal-dey"
+github_repo  = "lambda-test"
+github_branch = "main"
+
+# S3 Bucket
+artifact_bucket_name = "ci-artifacts-bucket-aws-equity-management"
+
+# CodeBuild Image
+codebuild_image = "aws/codebuild/standard:7.0"
+

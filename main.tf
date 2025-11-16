@@ -6,7 +6,7 @@ provider "aws" {
 module "lambda_iam" {
   source = "./modules/iam"
 
-  role_name         = var.lambda_role_name
+  role_name         = "${var.application_name}-${var.environment}-lambda-execution-role"
   service_principals = ["lambda.amazonaws.com"]
   tags = {
     Environment = var.environment

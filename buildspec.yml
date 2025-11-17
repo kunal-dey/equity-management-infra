@@ -24,8 +24,29 @@ phases:
         APP_NAME="${APP_NAME:-equity-management}"
         ENV_NAME="${ENV_NAME:-${ENVIRONMENT:-production}}"
         ROLE_NAME="${APP_NAME}-${ENV_NAME}-lambda-execution-role"
-        echo "Checking for existing IAM role: $ROLE_NAME"
-        terraform import -input=false module.lambda_iam.aws_iam_role.this "$ROLE_NAME" 2>&1 || echo "Note: Role import skipped (role may already be in state or doesn't exist yet)"
+        echo "Role name to import: $ROLE_NAME"
+        # Check if role is already in state
+        if terraform state list 2>/dev/null | grep -q "module.lambda_iam.aws_iam_role.this"; then
+          echo "Role is already in Terraform state, skipping import"
+        else
+          echo "Attempting to import role into Terraform state..."
+          IMPORT_OUTPUT=$(terraform import -input=false module.lambda_iam.aws_iam_role.this "$ROLE_NAME" 2>&1)
+          IMPORT_EXIT_CODE=$?
+          echo "$IMPORT_OUTPUT"
+          if [ $IMPORT_EXIT_CODE -eq 0 ]; then
+            echo "Successfully imported IAM role: $ROLE_NAME"
+            echo "Refreshing Terraform state..."
+            terraform refresh -input=false || true
+          else
+            if echo "$IMPORT_OUTPUT" | grep -q "already managed by Terraform"; then
+              echo "Role is already managed by Terraform state"
+            elif echo "$IMPORT_OUTPUT" | grep -q "Cannot import"; then
+              echo "Import not possible - role may not exist or access denied"
+            else
+              echo "Import failed. This is OK if the role doesn't exist yet - Terraform will create it."
+            fi
+          fi
+        fi
   build:
     commands:
       - echo "Validating & Planning ..."

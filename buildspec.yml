@@ -14,6 +14,11 @@ phases:
     commands:
       - echo "Initializing Terraform ..."
       - terraform init -input=false
+  build:
+    commands:
+      - echo "Validating ..."
+      - terraform fmt -recursive
+      - terraform validate
       - |
         echo "Attempting to import existing IAM role if it exists..."
         # Construct role name from terraform.tfvars or use defaults
@@ -24,35 +29,51 @@ phases:
         APP_NAME="${APP_NAME:-equity-management}"
         ENV_NAME="${ENV_NAME:-${ENVIRONMENT:-production}}"
         ROLE_NAME="${APP_NAME}-${ENV_NAME}-lambda-execution-role"
-        echo "Role name to import: $ROLE_NAME"
-        # Check if role is already in state
+        echo "Role name to check: $ROLE_NAME"
+        # Check if role is already in Terraform state
         if terraform state list 2>/dev/null | grep -q "module.lambda_iam.aws_iam_role.this"; then
-          echo "Role is already in Terraform state, skipping import"
+          echo "✓ Role is already in Terraform state"
         else
-          echo "Attempting to import role into Terraform state..."
-          IMPORT_OUTPUT=$(terraform import -input=false module.lambda_iam.aws_iam_role.this "$ROLE_NAME" 2>&1)
-          IMPORT_EXIT_CODE=$?
-          echo "$IMPORT_OUTPUT"
-          if [ $IMPORT_EXIT_CODE -eq 0 ]; then
-            echo "Successfully imported IAM role: $ROLE_NAME"
-            echo "Refreshing Terraform state..."
-            terraform refresh -input=false || true
-          else
-            if echo "$IMPORT_OUTPUT" | grep -q "already managed by Terraform"; then
-              echo "Role is already managed by Terraform state"
-            elif echo "$IMPORT_OUTPUT" | grep -q "Cannot import"; then
-              echo "Import not possible - role may not exist or access denied"
+          # Check if role exists in AWS
+          echo "Checking if role exists in AWS..."
+          if aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
+            echo "Role exists in AWS, attempting to import..."
+            IMPORT_OUTPUT=$(terraform import -input=false module.lambda_iam.aws_iam_role.this "$ROLE_NAME" 2>&1)
+            IMPORT_EXIT_CODE=$?
+            echo "$IMPORT_OUTPUT"
+            if [ $IMPORT_EXIT_CODE -eq 0 ]; then
+              echo "✓ Successfully imported IAM role: $ROLE_NAME"
+              # Verify it's actually in state
+              if terraform state list 2>/dev/null | grep -q "module.lambda_iam.aws_iam_role.this"; then
+                echo "✓ Verified: Role is now in Terraform state"
+              else
+                echo "WARNING: Import reported success but role not found in state"
+              fi
             else
-              echo "Import failed. This is OK if the role doesn't exist yet - Terraform will create it."
+              echo "ERROR: Import failed (exit code: $IMPORT_EXIT_CODE)"
+              echo "Full error: $IMPORT_OUTPUT"
+              echo "The role exists in AWS but import failed. This will cause apply to fail."
+              echo "Attempting to show current state..."
+              terraform state list 2>/dev/null | grep -i "iam\|role" || echo "No IAM resources in state"
             fi
+          else
+            echo "Role does not exist in AWS - Terraform will create it"
           fi
         fi
-  build:
-    commands:
-      - echo "Validating & Planning ..."
-      - terraform fmt -recursive
-      - terraform validate
+      - echo "Planning ..."
       - terraform plan -input=false -out=tfplan
+      - |
+        # Verify the plan doesn't try to create the IAM role if it was imported
+        if terraform show -json tfplan 2>/dev/null | grep -q '"module.lambda_iam.aws_iam_role.this".*"actions":\["create"\]'; then
+          echo "WARNING: Plan still shows IAM role creation. Checking if import worked..."
+          if terraform state list 2>/dev/null | grep -q "module.lambda_iam.aws_iam_role.this"; then
+            echo "Role is in state but plan wants to create it. This may indicate a configuration mismatch."
+          else
+            echo "Role is not in state. Import may have failed."
+          fi
+        else
+          echo "✓ Plan looks good - IAM role should not be created"
+        fi
       - echo "Applying ..."
       - terraform apply -input=false -auto-approve tfplan
 artifacts:
